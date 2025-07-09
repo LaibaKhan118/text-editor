@@ -1,10 +1,12 @@
 /*** Includes ***/
 #include <ctype.h>
-#include <stdio.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <sys/ioctl.h>
 #include <termios.h>
+#include <unistd.h>
+
 
 /*** Defines ***/
 
@@ -12,29 +14,36 @@
 
 /*** Data ***/
 
-struct termios orig_termios;
+struct editorConfig {
+    struct termios orig_termios;
+};
+
+struct editorConfig E;
 
 /*** Terminal ***/
 
     // Error Handling
 void die(char* s) {
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+
     perror(s);
     exit(1);
 }
 
     // Turn Off Echo, Canonical Mode, & Other Flags
 void disableRawMode() {
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1) {
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1) {
         die("tcsetattr");
     }
 }
 void enableRowMode() {
-    if(tcgetattr(STDIN_FILENO, &orig_termios) ==-1) {
+    if(tcgetattr(STDIN_FILENO, &E.orig_termios) ==-1) {
         die("tcgetattr");
     }
     atexit(disableRawMode);
 
-    struct termios raw = orig_termios;
+    struct termios raw = E.orig_termios;
     raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
     raw.c_oflag &= ~(OPOST);
     raw.c_cflag |= (CS8);
@@ -45,6 +54,57 @@ void enableRowMode() {
         die("tcsetattr");
     }
 }
+    // Reading & validating key presses
+char editorReadKey() {
+    int nread;
+    char c;
+    while((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+        if(nread == -1 && errno != EAGAIN) { die("read"); }
+    }
+    return c;
+}
+
+int getWindowSize(int* rows, int* cols) {
+    struct winsize ws;
+
+    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+        return -1;
+    }
+    else {
+        *rows = ws.ws_row;
+        *cols = ws.ws_col;
+        return 0;
+    }
+}
+
+/*** Output ***/
+
+void editorDrawRows() {
+    int y;
+    for(y = 0; y < 24; y++) {
+        write(STDOUT_FILENO, "~\r\n", 3);
+    }
+}
+void editorRefreshScreen() {
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+    editorDrawRows();
+    write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
+/*** Input ***/
+
+void editorProcessKeypress() {
+    char c = editorReadKey();
+
+    switch(c) {
+        case CTRL_KEY('q'):
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 3);
+            exit(0);
+            break;
+    }
+}
 
 /*** Init ***/
 
@@ -52,19 +112,10 @@ int main() {
     enableRowMode();
 
     while(1) {
-        char c = '\0';
-        if(read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN){
-            die("read");
-        }
-        if(iscntrl(c)) {
-            printf("%d\r\n",c);
-        }
-        else {
-            printf("%d ('%c')\r\n",c,c);
-        }
-        if(c == CTRL_KEY('q')) break;
+        editorRefreshScreen();
+        editorProcessKeypress();
     }
     return 0;
 }
 
-// Resume: Error handling (step _) 
+// Resume: Error handling (step 28) 

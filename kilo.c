@@ -71,7 +71,7 @@ struct editorConfig E;
 
 void editorSetStatusMessage(const char *fmt, ...);
 void editorRefreshScreen();
-char *editorPrompt(char *prompt);
+char *editorPrompt(char *prompt, void (*callback)(char *, int));
 
 /*** Terminal ***/
 
@@ -514,7 +514,7 @@ void editorSave()
 {
     if (E.filename == NULL)
     {
-        E.filename = editorPrompt("Save as (ESC to Cancel): %s");
+        E.filename = editorPrompt("Save as (ESC to Cancel): %s", NULL);
         if (E.filename == NULL)
         {
             editorSetStatusMessage("Save Aborted!");
@@ -546,10 +546,9 @@ void editorSave()
 
 /*** Find ***/
 
-void editorFind()
+void editorFindCallBack(char *query, int key)
 {
-    char *query = editorPrompt("Search (ESC to cancel): %s");
-    if (query == NULL)
+    if (key == '\r' || key == '\x1b')
         return;
 
     int i;
@@ -562,10 +561,30 @@ void editorFind()
             E.cy = i;
             E.cx = editorRowRxToCx(row, match - row->render);
             E.rowoff = E.numrows;
-            return;
+            break;
         }
     }
-    free(query);
+}
+
+void editorFind()
+{
+    int saved_cx = E.cx;
+    int saved_cy = E.cy;
+    int saved_coloff = E.coloff;
+    int saved_rowoff = E.rowoff;
+
+    char *query = editorPrompt("Search (ESC to cancel): %s", editorFindCallBack);
+    if (query)
+    {
+        free(query);
+    }
+    else
+    {
+        E.cx = saved_cx;
+        E.cy = saved_cy;
+        E.coloff = saved_coloff;
+        E.rowoff = saved_rowoff;
+    }
 }
 
 /*** Append Buffer ***/
@@ -760,7 +779,7 @@ void editorSetStatusMessage(const char *fmt, ...)
 
 /*** Input ***/
 
-char *editorPrompt(char *prompt)
+char *editorPrompt(char *prompt, void (*callback)(char *, int))
 {
     size_t bufsize = 128;
     char *buf = malloc(bufsize);
@@ -784,6 +803,10 @@ char *editorPrompt(char *prompt)
         else if (c == '\x1b')
         {
             editorSetStatusMessage("");
+            if (callback)
+            {
+                callback(buf, c);
+            }
             free(buf);
             return NULL;
         }
@@ -792,6 +815,10 @@ char *editorPrompt(char *prompt)
             if (buflen != 0)
             {
                 editorSetStatusMessage("");
+                if (callback)
+                {
+                    callback(buf, c);
+                }
                 return buf;
             }
         }
@@ -804,6 +831,10 @@ char *editorPrompt(char *prompt)
             }
             buf[buflen++] = c;
             buf[buflen] = '\0';
+        }
+        if (callback)
+        {
+            callback(buf, c);
         }
     }
 }
@@ -994,4 +1025,4 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-// Resume: Error handling (step 131). Open Ubunto and cd to text-editor
+// Resume: Error handling (step 139). Open Ubunto and cd to text-editor
